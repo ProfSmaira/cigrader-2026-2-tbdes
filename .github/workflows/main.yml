@@ -14,6 +14,8 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password_de_teste
           POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -22,11 +24,11 @@ jobs:
 
     # 2. Sua imagem original intocada
     container:
-      image: ufscar/cigrader:ubuntu-24_04
+      image: ufscar/cigrader:latest
       options: --privileged
     
     env:
-      PROF_GITHUB: ${{ secrets.PROF_GITHUB }}
+      PROF_GITHUB: ${{ vars.PROF_GITHUB }}
       # 3. Apontamento para o SGBD: o host deve ser exatamente o nome do serviço ("postgres")
       PGUSER: postgres
       PGPASSWORD: password_de_teste
@@ -52,13 +54,24 @@ jobs:
           script: |
             const commit_details = await github.git.getCommit({owner: context.repo.owner, repo: context.repo.repo, commit_sha: context.sha});
             return commit_details.data.author.date
-            
+
+      - name: Configurar diretório seguro do Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Testar conexão com PostgreSQL
+        run: |
+          echo "PGHOST=$PGHOST"
+          getent hosts "$PGHOST"
+          pg_isready -h "$PGHOST" -p 5432 -U "$PGUSER" -d "$PGDATABASE"
+          psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -c "SELECT 1;"
+        
       # 5. Execução padrão do seu Grader
       - name: Grader
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ secrets.GITHUB_REPOSITORY }}
-          GITHUB_ACTOR: ${{ secrets.GITHUB_ACTOR }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_ACTOR: ${{ github.actor }}
           COMMIT_TIME: ${{ steps.author-date.outputs.result }}
           COMMIT_FILES: ${{ steps.files.outputs.all }}
+          PGPASSWORD: password_de_teste
         run: python3 .github/workflows/grade.py
